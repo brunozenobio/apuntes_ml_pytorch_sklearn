@@ -1,0 +1,437 @@
+---
+title: "Capítulo 2 · Entrenamiento de algoritmos sencillos de aprendizaje automático para tareas de clasificación"
+lang: es
+---
+
+## El perceptrón simple
+
+Entre los puntos importantes de este capítulo se estudia un **perceptrón simple**: un modelo que combina sus entradas con pesos y un sesgo (*bias*).
+
+La entrada neta del modelo se calcula como:
+
+$$
+z = \mathbf{w}^\top \mathbf{x} + b
+$$
+
+donde:
+
+- $\mathbf{x}$ es el vector de entrada,
+- $\mathbf{w}$ es el vector de pesos,
+- $b$ es el sesgo,
+- $z$ es la entrada neta.
+
+La función de decisión es un escalón, definido como:
+
+$$
+\sigma(z) =
+\begin{cases}
+1 & \text{si } z \geq 0, \\
+0 & \text{en caso contrario.}
+\end{cases}
+$$
+
+### Actualización de los pesos y el sesgo
+
+El perceptrón aprende recorriendo las muestras de entrenamiento. Para cada muestra $\mathbf{x}^{(i)}$, compara su etiqueta real $y^{(i)}$ con la predicción $\hat{y}^{(i)} = \sigma(z^{(i)})$ y calcula:
+
+$$
+\Delta^{(i)} = \eta \left(y^{(i)} - \hat{y}^{(i)}\right)
+$$
+
+Aquí, $\eta$ es la **tasa de aprendizaje**, que determina el tamaño de la actualización. Con ese valor se modifican los pesos y el sesgo:
+
+$$
+\mathbf{w} \leftarrow \mathbf{w} + \Delta^{(i)}\mathbf{x}^{(i)},
+\qquad
+b \leftarrow b + \Delta^{(i)}
+$$
+
+Para cada peso individual, la regla es $w_j \leftarrow w_j + \Delta^{(i)}x_j^{(i)}$. Si la predicción es correcta, $\Delta^{(i)} = 0$ y no hay cambios. Si la clase real es $1$ y se predijo $0$, $\Delta^{(i)} = \eta$; en el caso contrario, $\Delta^{(i)} = -\eta$. Estas reglas utilizan la codificación de clases $0$ y $1$ definida arriba.
+
+### Implementación
+
+Teniendo esto en cuenta, se implementa la clase `Perceptron`.
+
+```{python}
+import numpy as np
+
+class Perceptron:
+    """Perceptron Classifier.
+    Parameters.
+    ---------------
+    eta : float
+        Tasa de aprendizaje (entre 0 y 1)
+    n_iter: int
+        Iteraciones hechas sobre el set de aprendizaje.
+    random_state: int
+        Semilla para poder hacer un modelo reproducible, a travez de la inicializacion de sus pesos.
+        
+    Attributes.
+    --------------
+    w_ : 1d-array
+        Pesos del entrenamiento
+    b_ : Scalar
+        Sesgo
+    errors_ : list
+        Numero de clasificaciones erroneas (actualizable) por cada epoch de train.
+    
+    """
+    def __init__(self,eta=0.01,n_iter=100,random_state=1):
+        self.eta = eta
+        self.n_iter = n_iter
+        self.random_state= random_state
+
+    def fit(self,X,y):
+        """Entrenamiento del modelo.
+
+        Parameters.
+        ----------
+        X : {array-like}, shape=[n_examples,n_features]
+            Set de entrenamiento donde
+            n_examples : Observacinones/filas/ejemplos
+            n_features : Columnas/variables
+        y : {array-like}, shape=[n_examples]
+            Valores target
+        Returns
+        -------
+        self : Object
+        """
+        rgen = np.random.RandomState(self.random_state) #Semilla para un generador de numeros
+        self.w_ = rgen.normal(loc=0.0,scale=0.01,size=X.shape[1])#Inicializamos los pesos a partir de la semilla, con un shape igual al numero de features del set.
+        self.b_ = np.float64(0.) #Inicializamos el sesgo en 0
+        self.errors_ = [] #inicializamos la lista de erorres
+
+        #entrenamiento
+        for _ in range(self.n_iter):
+            errors = 0
+            for xi,target in zip(X,y): #Desempaqueetamos X,y ya que tienene el mismo numero de filas, y lo iteramos como (feature1,feature2....,target)
+                update = self.eta * (target - self.predict(xi)) # Regla de actualización del perceptrón
+                self.w_ += update * xi # Actualización de los pesos
+                self.b_ += update #actualizaion de bias
+                errors += int(update != 0.0) 
+            self.errors_.append(errors)
+        return self
+
+    def net_input(self,X):
+        """Calcula el z"""
+        return np.dot(X,self.w_) + self.b_
+    def predict(self,X):
+        """Retorna la prediccion en funcion del valor de sigma(z)"""
+        return np.where(self.net_input(X)>=0.0,1,0)
+         
+        
+```
+
+### Entrenamiento y predicción
+
+```{python}
+from sklearn.datasets import load_iris
+
+iris = load_iris()
+X = iris.data[:100, [0, 2]]
+y = iris.target[:100]
+
+ppn = Perceptron()
+ppn.fit(X, y)
+
+y_pred = ppn.predict(X)
+print("Predicciones:", y_pred)
+```
+
+### Grilla para visualizar las regiones de decisión
+
+Para visualizar qué clase predice el perceptrón en distintas zonas, creamos una **grilla de puntos** que cubre el espacio de las dos características. Cada punto de la grilla tiene dos coordenadas: longitud del sépalo y longitud del pétalo. Luego usamos el modelo para predecir su clase.
+
+#### ¿Qué hace `np.meshgrid`?
+
+`np.meshgrid` toma los valores posibles de cada eje y construye dos matrices con todas las combinaciones de coordenadas. Por ejemplo:
+
+``` python
+valores_x1 = np.array([1, 2, 3])
+valores_x2 = np.array([10, 20])
+xx1, xx2 = np.meshgrid(valores_x1, valores_x2)
+```
+
+El resultado es:
+
+``` text
+xx1 = [[1, 2, 3],       xx2 = [[10, 10, 10],
+       [1, 2, 3]]              [20, 20, 20]]
+```
+
+Las matrices tienen la misma forma: **2 filas y 3 columnas**. La coordenada de cada punto se obtiene tomando los valores que ocupan la misma posición en ambas matrices. Por ejemplo, la primera fila representa los puntos $(1, 10)$, $(2, 10)$ y $(3, 10)$; la segunda, $(1, 20)$, $(2, 20)$ y $(3, 20)$.
+
+Esto generaria una cuadricula donde el eje x seria x -\> 1,2,3,1,2,3 y le corresponde los valores de y -\> 10,20 y asi tengo una grilla
+
+En el código del gráfico, `np.arange` genera los valores de cada eje y el paso `0.02` determina la separación entre ellos. Un paso menor crea una grilla más densa, pero requiere calcular más predicciones.
+
+#### De la grilla a las predicciones
+
+El método `predict` espera una matriz donde **cada fila sea un punto** y cada columna sea una característica. Para preparar esa matriz, el código usa `ravel()` y luego transpone el resultado:
+
+``` python
+np.array([xx1.ravel(), xx2.ravel()]).T
+```
+
+Siguiendo el ejemplo anterior:
+
+1.  **`ravel()`** aplana cada matriz y devuelve un arreglo de una dimensión:
+
+    ``` text
+    xx1.ravel() → [1, 2, 3, 1, 2, 3]
+    xx2.ravel() → [10, 10, 10, 20, 20, 20]
+    ```
+
+2.  **`np.array([...])`** reúne esos arreglos en una matriz de forma `(2, 6)`: una fila para los valores de cada característica.
+
+3.  **`.T`** transpone la matriz: intercambia filas y columnas. La forma pasa a ser `(6, 2)` y cada fila contiene las coordenadas de un punto:
+
+    ``` text
+    [[1, 10],
+     [2, 10],
+     [3, 10],
+     [1, 20],
+     [2, 20],
+     [3, 20]]
+    ```
+
+Finalmente, `ppn.predict(...)` devuelve una clase por cada fila. Si luego queremos mostrar esas clases como regiones sobre la grilla, podemos recuperar su forma original con `lab.reshape(xx1.shape)`: en este ejemplo, las seis predicciones pasarían de un vector de forma `(6,)` a una matriz de forma `(2, 3)`.
+
+```{python}
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
+def plot_descision_colors(X,y,classifier,resolution=0.02):
+    markers = ('o','^','s','v','<')
+    colors = ('red','blue','cyan','gray','blueviolet')
+    cmap = ListedColormap(colors[:len(np.unique(y))])
+    
+    x1_min,x1_max = X[:,0].min() -1 ,X[:,0].max() + 1
+    x2_min,x2_max = X[:,1].min() -1 ,X[:,1].max() + 1
+    xx1,xx2 = np.meshgrid(np.arange(x1_min,x1_max,resolution),
+                         np.arange(x2_min,x2_max,0.02))
+    
+    lab = ppn.predict(np.array([xx1.ravel(),xx2.ravel()]).T)
+    lab = lab.reshape(xx1.shape)
+    plt.contourf(xx1,xx2,lab,alpha=0.3,cmap=cmap)
+    plt.xlim(xx1.min(),xx1.max())
+    plt.ylim(xx2.min(),xx2.max())
+    
+    ##Hasta ahi fue la frontera de descicion del modelo
+    
+    #Itero por los valores unico de y, y me quedo para cada array X con la columna correspondiente, y con todas las filas pertenecientes
+    #a cierto valores de y
+    ## Ejemplo si cl = 0, tomo X[y==0] , todas las filas de x donde una fila de y vale 0
+    ###IMPORTANTE ES QUE X e y TIENE QUE TENER EL MISMO ORDEN
+    for idx,cl in enumerate(np.unique(y)):
+        plt.scatter(x=X[y==cl,0],y=X[y==cl,1],alpha=0.8,marker=markers[idx],label=f'Class {cl}',edgecolor='black')
+    plt.xlabel('Sepal length [cm]')
+    plt.ylabel('Petal length [cm]')
+    plt.legend(loc='upper left')
+    plt.show()
+
+```
+
+```{python}
+plot_descision_colors(X,y,ppn)
+```
+
+## ADALINE y descenso por gradiente por lotes
+
+**ADALINE** significa *Adaptive Linear Neuron* (neurona lineal adaptativa). Al igual que el perceptrón, combina las características de cada muestra con pesos y un sesgo. Para la muestra $i$, su entrada neta es:
+
+$$
+z^{(i)} = \mathbf{w}^{\top}\mathbf{x}^{(i)} + b
+= \sum_{j=1}^{m} w_j x_j^{(i)} + b
+$$
+
+Aquí, $m$ es el número de características. El superíndice $(i)$ identifica la **muestra o fila** y el subíndice $j$ identifica la **característica o columna**. Por ejemplo, $x_2^{(3)}$ es el valor de la segunda característica en la tercera muestra.
+
+La función de activación de ADALINE es lineal: $\sigma(z) = z$. Por eso, durante el entrenamiento se compara la etiqueta real $y^{(i)}$ con la salida numérica $z^{(i)}$, sin aplicar antes el umbral de clasificación. Definimos el error de la muestra $i$ como:
+
+$$
+e^{(i)} = y^{(i)} - z^{(i)}
+$$
+
+Para clasificar, en cambio, se puede aplicar un umbral a la salida lineal y obtener una clase, por ejemplo $0$ o $1$. La diferencia importante con el perceptrón es que **ADALINE actualiza sus parámetros usando el error de la salida lineal**, no el error de la clase obtenida tras aplicar el umbral.
+
+### Función de pérdida y gradiente
+
+Para medir el error sobre las $n$ muestras de entrenamiento, utilizamos la suma de errores cuadrados, multiplicada por $1/2$ para simplificar las derivadas:
+
+$$
+L(\mathbf{w}, b) = \frac{1}{2}\sum_{i=1}^{n}
+\left(y^{(i)} - z^{(i)}\right)^2
+$$
+
+El descenso por gradiente busca reducir esta pérdida modificando los parámetros en la dirección opuesta a sus derivadas. Para cada peso $w_j$, como $\partial z^{(i)} / \partial w_j = x_j^{(i)}$, se obtiene:
+
+$$
+\frac{\partial L}{\partial w_j}
+= -\sum_{i=1}^{n}\left(y^{(i)} - z^{(i)}\right)x_j^{(i)}
+= -\sum_{i=1}^{n} e^{(i)}x_j^{(i)}
+$$
+
+De forma similar, como $\partial z^{(i)} / \partial b = 1$, la derivada respecto al sesgo es:
+
+$$
+\frac{\partial L}{\partial b}
+= -\sum_{i=1}^{n} e^{(i)}
+$$
+
+### Actualización de los parámetros
+
+Con una tasa de aprendizaje $\eta$, restamos a cada parámetro su derivada multiplicada por $\eta$. Para el peso $w_j$:
+
+$$
+\Delta w_j = -\eta\frac{\partial L}{\partial w_j}
+= \eta\sum_{i=1}^{n} e^{(i)}x_j^{(i)},
+\qquad
+w_j \leftarrow w_j + \Delta w_j
+$$
+
+Para el sesgo:
+
+$$
+\Delta b = -\eta\frac{\partial L}{\partial b}
+= \eta\sum_{i=1}^{n} e^{(i)},
+\qquad
+b \leftarrow b + \Delta b
+$$
+
+En el **descenso por gradiente por lotes completos**, primero se calculan las salidas y los errores de todas las muestras con los parámetros actuales. Luego se combinan sus contribuciones y se actualizan los pesos y el sesgo una vez por iteración. Esto contrasta con el perceptrón presentado antes, que actualiza sus parámetros después de cada muestra.
+
+Si se define la pérdida como el **promedio** de los errores cuadrados en lugar de su suma, las derivadas y las actualizaciones también incluyen un factor $1/n$. La convención usada aquí es la suma; por eso ese factor no aparece.
+
+### La suma de errores en forma matricial
+
+La expresión $\sum_{i=1}^{n} e^{(i)}x_j^{(i)}$ calcula la contribución de todas las muestras a la actualización de **un solo peso** $w_j$. Podemos calcular estas sumas para todos los pesos al mismo tiempo mediante un producto matricial.
+
+Sea $\mathbf{X}$ la matriz de datos, con $n$ filas y $m$ columnas, y sea $\mathbf{e}$ el vector de errores:
+
+$$
+\mathbf{X} =
+\begin{pmatrix}
+x_1^{(1)} & \cdots & x_m^{(1)} \\
+\vdots & \ddots & \vdots \\
+x_1^{(n)} & \cdots & x_m^{(n)}
+\end{pmatrix},
+\qquad
+\mathbf{e} =
+\begin{pmatrix}
+e^{(1)} \\ \vdots \\ e^{(n)}
+\end{pmatrix}
+$$
+
+Al transponer $\mathbf{X}$, cada fila de $\mathbf{X}^{\top}$ contiene los valores de una característica para todas las muestras. Por tanto, al multiplicar por $\mathbf{e}$, cada fila produce una de las sumas buscadas:
+
+**De esa forma X pasa de ser la tipica matriz de observaciones X features a features X observaciones, entonces cuando haga el producto matricial con el vector de errores se obtiene en cada fila el resultado de cada derivada de w**
+
+$$
+\mathbf{X}^{\top}\mathbf{e} =
+\begin{pmatrix}
+\sum_{i=1}^{n} e^{(i)}x_1^{(i)} \\
+\vdots \\
+\sum_{i=1}^{n} e^{(i)}x_m^{(i)}
+\end{pmatrix}
+$$
+
+El resultado anterior reúne las sumas de las contribuciones a cada peso. Para obtener el **vector de derivadas de la pérdida respecto de los pesos**, es decir, el gradiente, debemos cambiarles el signo:
+
+$$
+\nabla_{\mathbf{w}} L =
+\begin{pmatrix}
+\dfrac{\partial L}{\partial w_1} \\
+\vdots \\
+\dfrac{\partial L}{\partial w_m}
+\end{pmatrix}
+=
+-\begin{pmatrix}
+\sum_{i=1}^{n} e^{(i)}x_1^{(i)} \\
+\vdots \\
+\sum_{i=1}^{n} e^{(i)}x_m^{(i)}
+\end{pmatrix}
+= -\mathbf{X}^{\top}\mathbf{e}
+$$
+
+Por lo tanto, $\mathbf{X}^{\top}\mathbf{e}$ no es el gradiente mismo, sino su **opuesto**, con la definición de error $e^{(i)} = y^{(i)} - z^{(i)}$. Las dimensiones ayudan a ver por qué funciona: $\mathbf{X}^{\top}$ tiene $m$ filas y $n$ columnas, mientras que $\mathbf{e}$ tiene $n$ elementos. Tanto el resultado como el gradiente tienen $m$ elementos: uno por cada peso.
+
+Así, la actualización conjunta de los pesos se escribe de forma compacta como:
+
+$$
+\mathbf{w} \leftarrow \mathbf{w} - \eta\nabla_{\mathbf{w}} L
+= \mathbf{w} + \eta\mathbf{X}^{\top}\mathbf{e}
+$$
+
+```{python}
+import numpy as np
+
+class AdelineGD:
+    """Perceptron Classifier.
+    Parameters.
+    ---------------
+    eta : float
+        Tasa de aprendizaje (entre 0 y 1)
+    n_iter: int
+        Iteraciones hechas sobre el set de aprendizaje.
+    random_state: int
+        Semilla para poder hacer un modelo reproducible, a travez de la inicializacion de sus pesos.
+        
+    Attributes.
+    --------------
+    w_ : 1d-array
+        Pesos del entrenamiento
+    b_ : Scalar
+        Sesgo
+    losses_ : list
+        Promedio del error cuadratico en cada iteracion
+    
+    """
+    def __init__(self,eta=0.01,n_iter=100,random_state=1):
+        self.eta = eta
+        self.n_iter = n_iter
+        self.random_state= random_state
+
+    def fit(self,X,y):
+        """Entrenamiento del modelo.
+
+        Parameters.
+        ----------
+        X : {array-like}, shape=[n_examples,n_features]
+            Set de entrenamiento donde
+            n_examples : Observacinones/filas/ejemplos
+            n_features : Columnas/variables
+        y : {array-like}, shape=[n_examples]
+            Valores target
+        Returns
+        -------
+        self : Object
+        """
+        rgen = np.random.RandomState(self.random_state) #Semilla para un generador de numeros
+        self.w_ = rgen.normal(loc=0.0,scale=0.01,size=X.shape[1])#Inicializamos los pesos a partir de la semilla, con un shape igual al numero de features del set.
+        self.b_ = np.float64(0.) #Inicializamos el sesgo en 0
+        self.losses_ = [] #inicializamos la lista de erorres
+
+        #entrenamiento
+        for i in range(self.n_iter):
+            net_input = self.net_input(X)
+            output = self.activation(net_input)
+            errors = y - output
+            self.w_ += self.eta * 2.0 * X.T.dot(errors) / X.shape[0] #tamanio de la muestra
+            self.b += self.eta * 2.0 * errors.mean() #Ya que es la suma de los errores divido la cantidad de ellos.
+            loss = (errors**2).mean()
+            
+        return self
+
+    def net_input(self,X):
+        """Calcula el z"""
+        return np.dot(X,self.w_) + self.b_
+    def activation(self,X):
+        '''Funcion de activacion'''
+        return X
+    def predict(self,X):
+        """Retorna la prediccion en funcion del valor de sigma(z)"""
+        return np.where(self.net_input(X)>=0.0,1,0)
+         
+        
+```
