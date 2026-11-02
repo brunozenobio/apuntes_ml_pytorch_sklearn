@@ -1,0 +1,18 @@
+---
+title: "Capítulo 3 · Clasificación con scikit-learn"
+lang: es
+---
+
+## Primeros pasos con scikit-learn
+
+En el capítulo anterior construimos un perceptrón desde cero para comprender cómo aprende a clasificar. Ahora damos el siguiente paso: utilizaremos **scikit-learn** para preparar los datos y trabajar con modelos de clasificación ya implementados. Así podremos concentrarnos en el entrenamiento, la evaluación y la comparación de resultados.
+
+Antes de empezar, conozcamos las herramientas que usaremos y dónde encontrarlas:
+
+| Herramienta | Módulo | Importación | ¿Para qué sirve? |
+|:--|:--|:--|:--|
+| `train_test_split` | `sklearn.model_selection` | `from sklearn.model_selection import train_test_split` | Divide los datos en conjuntos de entrenamiento y prueba. |
+| `Perceptron` | `sklearn.linear_model` | `from sklearn.linear_model import Perceptron` | Permite entrenar un clasificador lineal basado en el perceptrón. |
+| `LogisticRegression` | `sklearn.linear_model` | `from sklearn.linear_model import LogisticRegression` | Permite entrenar un clasificador de regresión logística. |
+
+> **Una distinción útil:** `train_test_split` es una **función**; `Perceptron` y `LogisticRegression` son **clases**. Aunque su nombre lo sugiera, la regresión logística se usa aquí para **clasificar**.

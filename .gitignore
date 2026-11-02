@@ -10,3 +10,6 @@ venv/
 # Entornos y datos locales
 .env
 data/
+
+/.quarto/
+**/*.quarto_ipynb
