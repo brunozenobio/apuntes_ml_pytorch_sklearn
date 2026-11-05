@@ -10,9 +10,174 @@ En el capítulo anterior construimos un perceptrón desde cero para comprender c
 Antes de empezar, conozcamos las herramientas que usaremos y dónde encontrarlas:
 
 | Herramienta | Módulo | Importación | ¿Para qué sirve? |
-|:--|:--|:--|:--|
+|:-----------------|:-----------------|:-----------------|:-----------------|
 | `train_test_split` | `sklearn.model_selection` | `from sklearn.model_selection import train_test_split` | Divide los datos en conjuntos de entrenamiento y prueba. |
 | `Perceptron` | `sklearn.linear_model` | `from sklearn.linear_model import Perceptron` | Permite entrenar un clasificador lineal basado en el perceptrón. |
 | `LogisticRegression` | `sklearn.linear_model` | `from sklearn.linear_model import LogisticRegression` | Permite entrenar un clasificador de regresión logística. |
+| `SVC` | `sklearn.svm` | `from sklearn.svm import SVC` | Permite entrenar una máquina de vectores de soporte; aquí usaremos su variante lineal. |
 
-> **Una distinción útil:** `train_test_split` es una **función**; `Perceptron` y `LogisticRegression` son **clases**. Aunque su nombre lo sugiera, la regresión logística se usa aquí para **clasificar**.
+> **Una distinción útil:** `train_test_split` es una **función**; `Perceptron`, `LogisticRegression` y `SVC` son **clases**. Aunque su nombre lo sugiera, la regresión logística se usa aquí para **clasificar**.
+
+## Regularización y el parámetro `C`
+
+La regularización limita la complejidad del modelo y puede ayudar a reducir el sobreajuste. En la regresión logística de scikit-learn se usa por defecto la regularización **L2**, que penaliza los pesos grandes. Para un modelo lineal con pesos $\mathbf{w}$ y sesgo $b$, podemos escribir el objetivo, con esta convención de escala, como:
+
+$$
+J(\mathbf{w}, b) = \sum_{i=1}^{n} L_i(\mathbf{w}, b) + \frac{1}{2C}\lVert\mathbf{w}\rVert_2^2,
+\qquad \lVert\mathbf{w}\rVert_2^2 = \sum_{j=1}^{d} w_j^2.
+$$
+
+Aquí $L_i$ es la pérdida logística de la muestra $i$ y $C > 0$ controla la intensidad de la regularización. El término de penalización aporta $w_j/C$ a la derivada respecto de cada peso $w_j$. Por ejemplo, un paso de descenso de gradiente con tasa de aprendizaje $\eta$ sería:
+
+$$
+w_j \leftarrow w_j - \eta\left(\frac{\partial \sum_i L_i}{\partial w_j} + \frac{w_j}{C}\right)
+= \left(1 - \frac{\eta}{C}\right)w_j - \eta\frac{\partial \sum_i L_i}{\partial w_j}.
+$$
+
+El término de regularización empuja los pesos hacia cero, mientras que la pérdida los ajusta para clasificar los datos. Esta ecuación ilustra el efecto de L2; no implica que todos los optimizadores de scikit-learn usen exactamente esa actualización. En general:
+
+- **`C` pequeño:** mayor penalización, pesos más cercanos a cero y un modelo más restringido; si es demasiado pequeño, puede producir subajuste.
+- **`C` grande:** menor penalización y mayor libertad para ajustar los datos; si es demasiado grande, puede aumentar el riesgo de sobreajuste.
+
+El sesgo $b$ normalmente no se penaliza; una excepción en `LogisticRegression` es el solver `liblinear`, que trata el intercepto como una característica sintética. Como la penalización depende de la magnitud de los pesos, conviene estandarizar las características antes de entrenar.
+
+### La relación entre $\lambda$ y `C`
+
+Otra forma habitual de expresar la regularización usa el hiperparámetro $\lambda \geq 0$. Si escribimos la pérdida como un **promedio** sobre las $n$ muestras, el objetivo L2 toma la forma:
+
+$$
+J(\mathbf{w}, b) = \frac{1}{n}\sum_{i=1}^{n} L_i(\mathbf{w}, b)
++ \frac{\lambda}{2}\lVert\mathbf{w}\rVert_2^2.
+$$
+
+Un $\lambda$ mayor aumenta la penalización y empuja más los pesos hacia cero; uno menor permite pesos menos restringidos. Para comparar esta expresión con la fórmula anterior basada en `C`, dividimos todo aquel objetivo por $n$. Así, **con estas convenciones**, $\lambda = 1/(nC)$. La relación exacta cambia si se define la pérdida como suma o promedio, o si se usan otros factores en la penalización; por eso conviene revisar la definición de cada implementación. `LogisticRegression` y `SVC` exponen `C`, no un parámetro llamado `lambda`.
+
+## SVM lineal y el parámetro `C`
+
+Una máquina de vectores de soporte (**SVM**) lineal busca una frontera $\mathbf{w}^\top\mathbf{x} + b = 0$ que separe las clases con un margen amplio. Para etiquetas $y_i \in \{-1, +1\}$, la distancia entre los dos límites canónicos del margen es $2/\lVert\mathbf{w}\rVert_2$. Minimizar la norma de los pesos, por tanto, favorece un margen más amplio.
+
+Para permitir errores o puntos dentro del margen, la SVM de margen suave equilibra ese objetivo con la pérdida *hinge*:
+
+$$
+\min_{\mathbf{w}, b}\; \frac{1}{2}\lVert\mathbf{w}\rVert_2^2
++ C\sum_{i=1}^{n}\max\left(0,\,1-y_i(\mathbf{w}^\top\mathbf{x}_i+b)\right).
+$$
+
+La pérdida es cero cuando una muestra está correctamente clasificada y fuera del margen; es positiva cuando está dentro del margen o mal clasificada. Los **vectores de soporte** son las muestras que determinan la posición de la frontera y del margen.
+
+- **`C` pequeño:** tolera más violaciones del margen y favorece un margen más amplio y pesos de menor norma.
+- **`C` grande:** penaliza más las violaciones, por lo que intenta ajustarse más a los datos de entrenamiento, posiblemente con un margen más estrecho.
+
+Aunque `C` aparece multiplicando la pérdida en la fórmula de SVM, dividir todo el objetivo por `C` muestra la misma relación inversa con la penalización L2. No existe un valor universalmente óptimo: se puede elegir mediante validación.
+
+### Ejemplo con scikit-learn
+
+El siguiente ejemplo divide los datos antes de estandarizarlos. Cada `Pipeline` aprende la escala solo con el conjunto de entrenamiento y la aplica después al de prueba:
+
+```{python}
+from sklearn.datasets import load_iris
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+
+X, y = load_iris(return_X_y=True)
+# Usamos dos clases para ilustrar la clasificación binaria.
+X, y = X[y < 2], y[y < 2]
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, stratify=y, random_state=42
+)
+
+modelos = {
+    "Regresión logística": make_pipeline(StandardScaler(), LogisticRegression(C=1.0)),
+    "SVM lineal": make_pipeline(StandardScaler(), SVC(kernel="linear", C=1.0)),
+}
+
+for nombre, modelo in modelos.items():
+    modelo.fit(X_train, y_train)
+    print(f"{nombre}: exactitud en prueba = {modelo.score(X_test, y_test):.3f}")
+```
+
+La exactitud de prueba es una primera referencia, no una garantía de generalización. Para comparar valores de `C`, utiliza validación sobre los datos de entrenamiento y reserva el conjunto de prueba para la evaluación final.
+
+## El truco del kernel
+
+Una frontera lineal en el espacio original no siempre puede separar bien las clases. Una alternativa es representar cada muestra mediante una transformación $\phi(\mathbf{x})$ a un espacio de características más rico y buscar allí una frontera lineal. Al volver al espacio original, esa frontera puede ser no lineal.
+
+Por ejemplo, para una entrada de dos características podemos usar $\phi(x_1, x_2) = (x_1^2, \sqrt{2}x_1x_2, x_2^2)$. Una frontera lineal en esas características transformadas puede describir una curva en el plano original.
+
+El **truco del kernel** evita calcular explícitamente todas las coordenadas de $\phi$. En su lugar, una función kernel calcula directamente el producto interno entre dos muestras transformadas:
+
+$$
+K(\mathbf{x}, \mathbf{z}) = \phi(\mathbf{x})^\top\phi(\mathbf{z}).
+$$
+
+La formulación de la SVM puede expresarse en términos de esos productos internos. Así, el modelo puede trabajar con espacios de características muy grandes —incluso infinitos para algunos kernels— sin construir explícitamente cada característica. Por ejemplo, para la transformación anterior, $K(\mathbf{x}, \mathbf{z}) = (\mathbf{x}^\top\mathbf{z})^2$.
+
+### Kernel RBF y `gamma`
+
+Un kernel frecuente es el **RBF** (función de base radial):
+
+$$
+K(\mathbf{x}, \mathbf{z}) = \exp\left(-\gamma\lVert\mathbf{x}-\mathbf{z}\rVert_2^2\right),
+\qquad \gamma > 0.
+$$
+
+Este kernel mide similitud en función de la distancia. En `SVC`, el hiperparámetro `gamma` controla cuánto se extiende la influencia de una muestra:
+
+- **`gamma` pequeño:** la similitud disminuye lentamente con la distancia; la influencia es más amplia y la frontera suele ser más suave.
+- **`gamma` grande:** la similitud disminuye rápidamente; la influencia es más local y la frontera puede volverse más compleja y sobreajustarse.
+
+`gamma` y `C` cumplen funciones distintas: `gamma` controla la escala de la similitud del RBF, mientras que `C` equilibra la penalización de las violaciones del margen con la regularización. No son equivalentes a $\lambda$, aunque algunos textos usen convenciones diferentes para nombrar los parámetros de un kernel.
+
+Por ejemplo, reutilizando la división anterior:
+
+```{python}
+svm_rbf = make_pipeline(StandardScaler(), SVC(kernel="rbf", C=1.0, gamma=0.1))
+svm_rbf.fit(X_train, y_train)
+print(f"SVM RBF: exactitud en prueba = {svm_rbf.score(X_test, y_test):.3f}")
+```
+
+La escala de las características afecta las distancias del RBF, por lo que es especialmente importante estandarizarlas. Para seleccionar `C` y `gamma`, compáralos conjuntamente mediante validación cruzada sobre el conjunto de entrenamiento, manteniendo la estandarización dentro del `Pipeline` y reservando el conjunto de prueba para el final.
+
+## Árboles de decisión e impureza de Gini
+
+Un **árbol de decisión** clasifica mediante una secuencia de preguntas sobre las características. Por ejemplo, puede preguntar si el largo de un pétalo es menor o igual que cierto valor. Cada respuesta lleva a una rama y, finalmente, a una **hoja**, donde se predice normalmente la clase mayoritaria de las muestras de entrenamiento que llegaron allí.
+
+Durante el entrenamiento, el árbol busca divisiones que agrupen muestras de la misma clase. Una forma de medir qué tan mezcladas están las clases en un nodo es la **impureza de Gini**:
+
+$$
+G = 1 - \sum_{k=1}^{K} p_k^2,
+$$
+
+donde $K$ es el número de clases y $p_k$ es la proporción de muestras de la clase $k$ en el nodo. Si todas las muestras pertenecen a una sola clase, $G = 0$: el nodo es puro. En un problema binario con la misma proporción de ambas clases, $G = 1 - 0.5^2 - 0.5^2 = 0.5$, su valor máximo para dos clases.
+
+Para evaluar una división, se calcula la impureza de cada nodo hijo y se obtiene su promedio ponderado por la cantidad de muestras que contiene. El árbol busca reducir la impureza respecto del nodo padre. Por ejemplo, si un nodo tiene cuatro muestras de cada clase, su Gini es $0.5$. Una división en dos hijos con cuatro muestras de una sola clase cada uno tiene impureza ponderada $0$ y reduce la impureza en $0.5$.
+
+Un árbol muy profundo puede memorizar los datos y **sobreajustarse**. Parámetros como `max_depth` y `min_samples_leaf` permiten limitar su complejidad. En `DecisionTreeClassifier`, `criterion="gini"` selecciona este criterio y es la opción predeterminada.
+
+## Introducción a los bosques aleatorios
+
+Un **bosque aleatorio** combina muchos árboles de decisión. Cada árbol se entrena normalmente con una muestra aleatoria con reemplazo de los datos y considera un subconjunto aleatorio de características en cada división. Para clasificar, el bosque combina las predicciones mediante una votación entre los árboles. Esta diversidad suele ayudar a reducir el sobreajuste respecto de un solo árbol, aunque no lo elimina por completo.
+
+## Introducción a KNN
+
+El clasificador de **k vecinos más cercanos** (*k-nearest neighbors* o KNN) predice la clase de una muestra consultando las clases de sus `k` vecinos más próximos en los datos de entrenamiento. Con votación uniforme, gana la clase más frecuente entre ellos. Un `k` pequeño puede generar fronteras sensibles al ruido; uno más grande suele suavizarlas, pero puede causar subajuste.
+
+Como KNN depende de las distancias, las características con escalas grandes pueden dominar el resultado. Conviene estandarizarlas con un `Pipeline` que ajuste la escala únicamente con los datos de entrenamiento.
+
+## Cuadro de importaciones e hiperparámetros
+
+Estos son los clasificadores presentados en el capítulo y algunos de sus hiperparámetros principales; no es una lista exhaustiva. Sus valores se pueden comparar mediante validación cruzada sobre el conjunto de entrenamiento.
+
+| Clasificador | Importación | Hiperparámetros principales |
+|:--|:--|:--|
+| Perceptrón | `from sklearn.linear_model import Perceptron` | `eta0`: tasa de aprendizaje; `max_iter`: máximo de épocas; `alpha`: intensidad de regularización cuando se usa `penalty`; `random_state`: reproducibilidad. |
+| Regresión logística | `from sklearn.linear_model import LogisticRegression` | `C`: inverso de la intensidad de regularización; `penalty`: tipo de penalización; `solver`: optimizador; `max_iter`: máximo de iteraciones. |
+| SVM | `from sklearn.svm import SVC` | `C`: equilibrio entre regularización y errores; `kernel`: función kernel; `gamma`: escala de influencia en kernels como RBF. |
+| Árbol de decisión | `from sklearn.tree import DecisionTreeClassifier` | `criterion`: criterio de división; `max_depth`: profundidad máxima; `min_samples_split`: mínimo de muestras para dividir; `min_samples_leaf`: mínimo de muestras por hoja; `random_state`: reproducibilidad. |
+| Bosque aleatorio | `from sklearn.ensemble import RandomForestClassifier` | `n_estimators`: número de árboles; `max_depth`: profundidad máxima de cada árbol; `max_features`: características consideradas por división; `min_samples_leaf`: mínimo de muestras por hoja; `random_state`: reproducibilidad. |
+| KNN | `from sklearn.neighbors import KNeighborsClassifier` | `n_neighbors`: número de vecinos; `weights`: peso de sus votos; `metric`: métrica de distancia; `p`: parámetro de la distancia de Minkowski. |
+
+Algunas combinaciones de `penalty` y `solver` no son compatibles en `LogisticRegression`; consulta la documentación de la versión de scikit-learn que utilices. En `SVC`, `gamma` no afecta al kernel lineal.

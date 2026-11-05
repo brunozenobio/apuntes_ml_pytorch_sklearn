@@ -361,7 +361,7 @@ Así, la actualización conjunta de los pesos se escribe de forma compacta como:
 $$
 \mathbf{w} \leftarrow \mathbf{w} - \eta\nabla_{\mathbf{w}} L
 = \mathbf{w} + \eta\mathbf{X}^{\top}\mathbf{e}
-$$
+$$ßß
 
 ```{python}
 import numpy as np
@@ -434,4 +434,8 @@ class AdelineGD:
         return np.where(self.net_input(X)>=0.0,1,0)
          
         
+```
+
+```{r}
+ßß
 ```

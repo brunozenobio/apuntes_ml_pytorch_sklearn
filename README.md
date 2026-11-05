@@ -16,6 +16,14 @@ Documentar y resumir los conceptos más importantes de cada capítulo mediante n
 
 En construcción.
 
+### Capítulo 3: clasificación con scikit-learn
+
+- Regularización L2 en regresión logística: `C` controla de forma inversa la penalización de los pesos. Un `C` menor los empuja más hacia cero; uno mayor permite un ajuste menos restringido.
+- SVM lineal: busca un margen amplio y usa `C` para equilibrarlo con las violaciones del margen. Un `C` grande penaliza más esas violaciones.
+- El hiperparámetro de regularización $\lambda$ aumenta la penalización cuando crece y se relaciona inversamente con `C`; la fórmula exacta depende de la escala de la pérdida.
+- Truco del kernel y SVM con kernel RBF: `gamma` controla el alcance de la similitud, mientras que `C` controla el equilibrio de regularización.
+- El capítulo incluye expresiones matemáticas y ejemplos con estandarización.
+
 ## Abrir los capítulos en Positron
 
 Los archivos `.qmd` son documentos Quarto. Para ejecutar los bloques de Python
