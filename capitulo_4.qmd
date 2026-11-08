@@ -1,0 +1,95 @@
+---
+title: "Capítulo 4 · Elaboración de conjuntos de datos de entrenamiento adecuados: preprocesamiento"
+lang: es
+---
+
+## Preparación de los datos
+
+El **preprocesamiento** transforma los datos para que un modelo pueda utilizarlos. Entre sus tareas están separar los datos, convertir categorías en números y ajustar la escala de las características.
+
+Antes de aprender cualquier transformación, separamos las características `X` de la variable objetivo `y` y dividimos los datos:
+
+```{python}
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+X = pd.DataFrame({
+    "color": ["rojo", "azul", "verde", "rojo", "azul", "verde"],
+    "tamaño": ["pequeño", "mediano", "grande", "mediano", "grande", "pequeño"],
+    "precio": [10, 20, 30, 18, 35, 12],
+})
+y = ["no", "sí", "sí", "no", "sí", "no"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.33, random_state=42, stratify=y
+)
+```
+
+`test_size` indica la proporción reservada para prueba; `random_state` permite reproducir la división y `stratify=y` procura conservar las proporciones de las clases.
+
+## Variables categóricas
+
+Las variables **nominales**, como el color, no tienen un orden natural. Las **ordinales**, como pequeño, mediano y grande, sí lo tienen.
+
+### One-hot encoding y variables dummy
+
+**One-hot encoding** crea una columna por categoría, con valores que indican si cada muestra pertenece a ella. Así evitamos sugerir que un color es mayor que otro. Una variable *dummy* es una de estas columnas indicadoras; a veces se elimina una columna para evitar redundancia en ciertos modelos lineales.
+
+```{python}
+from sklearn.preprocessing import OneHotEncoder
+
+codificador = OneHotEncoder(handle_unknown="ignore")
+colores_train = codificador.fit_transform(X_train[["color"]])
+colores_test = codificador.transform(X_test[["color"]])
+```
+
+`fit_transform` aprende las categorías del entrenamiento y las transforma; `transform` aplica lo aprendido a prueba. Con `handle_unknown="ignore"`, una categoría no vista se representa con ceros en sus columnas. El resultado es una matriz dispersa por defecto.
+
+Pandas ofrece una alternativa rápida con `get_dummies`:
+
+```{python}
+dummies_train = pd.get_dummies(X_train["color"], prefix="color", dtype=int)
+dummies_test = pd.get_dummies(X_test["color"], prefix="color", dtype=int)
+dummies_test = dummies_test.reindex(columns=dummies_train.columns, fill_value=0)
+```
+
+La última línea alinea las columnas de prueba con las de entrenamiento; una categoría que solo aparece en prueba queda representada con ceros. Con `drop_first=True` se puede omitir una categoría, si el modelo lo necesita.
+
+### Variables ordinales y etiquetas
+
+Para una característica ordinal, `OrdinalEncoder` permite indicar explícitamente su orden. `LabelEncoder` está destinado a codificar la **variable objetivo** `y`, no las columnas de características; asigna códigos numéricos a sus etiquetas, sin garantizar el orden semántico deseado.
+
+```{python}
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
+
+ordinal = OrdinalEncoder(categories=[["pequeño", "mediano", "grande"]])
+tamaños_train = ordinal.fit_transform(X_train[["tamaño"]])
+tamaños_test = ordinal.transform(X_test[["tamaño"]])
+
+etiquetas = LabelEncoder()
+y_train_codificada = etiquetas.fit_transform(y_train)
+y_test_codificada = etiquetas.transform(y_test)
+```
+
+Aquí los tamaños se codifican como 0, 1 y 2 en el orden indicado. `LabelEncoder` requiere que las etiquetas de prueba ya sean conocidas; no interpreta por sí mismo un orden como pequeño, mediano y grande.
+
+## Normalización y estandarización
+
+El escalado es especialmente útil para modelos sensibles a distancias o a la magnitud de las características, como KNN y SVM. Se aprende **solo con entrenamiento** y se aplica también a prueba, para evitar fuga de información.
+
+- **Normalización min-max:** `MinMaxScaler` transforma cada característica usando su mínimo y máximo de entrenamiento. Por defecto los valores de entrenamiento quedan entre 0 y 1: $x' = (x - x_{\min})/(x_{\max} - x_{\min})$. Es sensible a valores extremos; los datos de prueba pueden quedar fuera de ese intervalo.
+- **Estandarización:** `StandardScaler` resta la media y divide por la desviación estándar de entrenamiento: $z = (x - \mu)/\sigma$. Las características de entrenamiento quedan centradas en 0 y, si no son constantes, con desviación estándar 1; sus valores no quedan limitados a un intervalo fijo.
+
+```{python}
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+normalizador = MinMaxScaler()
+precio_train_normalizado = normalizador.fit_transform(X_train[["precio"]])
+precio_test_normalizado = normalizador.transform(X_test[["precio"]])
+
+estandarizador = StandardScaler()
+precio_train_estandarizado = estandarizador.fit_transform(X_train[["precio"]])
+precio_test_estandarizado = estandarizador.transform(X_test[["precio"]])
+```
+
+Son dos alternativas de escalado; no es necesario aplicar ambas sucesivamente. En un proyecto completo, `Pipeline` y `ColumnTransformer` ayudan a aplicar cada transformación a las columnas adecuadas sin filtrar información entre entrenamiento y validación.

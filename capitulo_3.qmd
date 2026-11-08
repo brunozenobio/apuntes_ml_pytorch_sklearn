@@ -172,7 +172,7 @@ Como KNN depende de las distancias, las características con escalas grandes pue
 Estos son los clasificadores presentados en el capítulo y algunos de sus hiperparámetros principales; no es una lista exhaustiva. Sus valores se pueden comparar mediante validación cruzada sobre el conjunto de entrenamiento.
 
 | Clasificador | Importación | Hiperparámetros principales |
-|:--|:--|:--|
+|:-----------------------|:-----------------------|:-----------------------|
 | Perceptrón | `from sklearn.linear_model import Perceptron` | `eta0`: tasa de aprendizaje; `max_iter`: máximo de épocas; `alpha`: intensidad de regularización cuando se usa `penalty`; `random_state`: reproducibilidad. |
 | Regresión logística | `from sklearn.linear_model import LogisticRegression` | `C`: inverso de la intensidad de regularización; `penalty`: tipo de penalización; `solver`: optimizador; `max_iter`: máximo de iteraciones. |
 | SVM | `from sklearn.svm import SVC` | `C`: equilibrio entre regularización y errores; `kernel`: función kernel; `gamma`: escala de influencia en kernels como RBF. |
