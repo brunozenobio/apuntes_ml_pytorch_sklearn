@@ -93,3 +93,122 @@ precio_test_estandarizado = estandarizador.transform(X_test[["precio"]])
 ```
 
 Son dos alternativas de escalado; no es necesario aplicar ambas sucesivamente. En un proyecto completo, `Pipeline` y `ColumnTransformer` ayudan a aplicar cada transformación a las columnas adecuadas sin filtrar información entre entrenamiento y validación.
+
+### Implementación de SBS
+
+**SBS** (*Sequential Backward Selection*, o selección secuencial hacia atrás) reduce el número de características. Parte de todas ellas y, en cada paso, prueba eliminar una a la vez. Conserva el subconjunto con mejor puntuación en validación y repite el proceso hasta llegar a `k_features`.
+
+```{python}
+
+```
+Es un método voraz: una característica eliminada no se recupera, por lo que no garantiza encontrar el mejor subconjunto global. Puede ayudar a reducir la complejidad, aunque requiere entrenar muchos modelos y depende del estimador y de la partición de validación elegidos.
+
+```{python}
+from itertools import combinations
+
+import numpy as np
+from sklearn.base import clone
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+
+
+class SBS:
+    def __init__(self, estimator, k_features, scoring=accuracy_score,
+                 test_size=0.25, random_state=1):
+        self.estimator = clone(estimator)  # Copia del modelo que evaluará cada subconjunto.
+        # Número de características en el que se detiene la reducción. Por
+        # ejemplo, con 10 características y k_features=4 se prueban 10, 9, ..., 4.
+        self.k_features = k_features
+        self.scoring = scoring  # Métrica para comparar los subconjuntos.
+        self.test_size = test_size  # Proporción reservada para validación interna.
+        self.random_state = random_state  # Permite reproducir la división interna.
+
+    def fit(self, X, y):
+        X = np.asarray(X)
+        y = np.asarray(y)
+        dim = X.shape[1]  # Cantidad actual de características.
+        if not 1 <= self.k_features <= dim:
+            raise ValueError("k_features debe estar entre 1 y el número de características")
+
+        # Esta división interna sirve para seleccionar características, no para
+        # sustituir el conjunto de prueba final.
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=self.test_size, random_state=self.random_state,
+            stratify=y
+        )
+        self.indices_ = tuple(range(dim))  # Índices del subconjunto actual.
+        self.subsets_ = [self.indices_]  # Guarda el subconjunto elegido en cada paso.
+        # Guardamos primero la puntuación usando todas las características.
+        self.scores_ = [self._calc_score(X_train, y_train, X_val, y_val, self.indices_)]
+
+        while dim > self.k_features:
+            scores = []  # Puntuación de cada combinación evaluada.
+            subsets = []  # Tuplas de índices correspondientes a esas puntuaciones.
+            # Cada combinación conserva dim - 1 características: equivale a
+            # quitar una característica del subconjunto actual.
+            for indices in combinations(self.indices_, r=dim - 1):
+                score = self._calc_score(X_train, y_train, X_val, y_val, indices)
+                scores.append(score)
+                subsets.append(indices)
+            best = np.argmax(scores)  # Posición de la puntuación más alta.
+            self.indices_ = subsets[best]  # Índices de la mejor combinación.
+            self.subsets_.append(self.indices_)  # Subconjunto elegido para esta cantidad.
+            self.scores_.append(scores[best])  # Su puntuación de validación.
+            dim -= 1  # Seguimos con una característica menos.
+
+        self.k_score_ = self.scores_[-1]  # Puntuación final con k_features.
+        return self
+
+    def transform(self, X):
+        # Conserva únicamente las columnas seleccionadas.
+        return np.asarray(X)[:, self.indices_]
+
+    def _calc_score(self, X_train, y_train, X_val, y_val, indices):
+        # Entrena y evalúa el modelo usando las columnas de la tupla indices.
+        self.estimator.fit(X_train[:, indices], y_train)
+        y_pred = self.estimator.predict(X_val[:, indices])
+        return self.scoring(y_val, y_pred)
+```
+
+#### Ejemplo con el conjunto de vinos
+
+El conjunto `wine` de scikit-learn contiene 13 características químicas y tres clases de vino. Primero separamos una prueba final y estandarizamos usando únicamente el entrenamiento. Después, SBS utiliza una división interna de ese entrenamiento para seleccionar tres características con KNN.
+
+```{python}
+import matplotlib.pyplot as plt
+from sklearn.datasets import load_wine
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler
+
+wine = load_wine()
+X_train, X_test, y_train, y_test = train_test_split(
+    wine.data, wine.target, test_size=0.3, random_state=42, stratify=wine.target
+)
+
+scaler = StandardScaler()
+X_train_std = scaler.fit_transform(X_train)
+X_test_std = scaler.transform(X_test)
+
+knn = KNeighborsClassifier(n_neighbors=5)
+sbs = SBS(knn, k_features=3)
+sbs.fit(X_train_std, y_train)
+
+print("Características seleccionadas:", [wine.feature_names[i] for i in sbs.indices_])
+print(f"Exactitud de validación con 3 características: {sbs.k_score_:.3f}")
+
+# Número de características de cada subconjunto, en el mismo orden que scores_.
+k_feat = [len(subset) for subset in sbs.subsets_]
+# La gráfica relaciona cada cantidad de características con su mejor puntuación.
+plt.plot(k_feat, sbs.scores_, marker="o")
+plt.xlabel("Número de características")
+plt.ylabel("Exactitud de validación")
+plt.grid()
+plt.tight_layout()
+plt.show()
+
+# Entrenamos de nuevo con todo el entrenamiento y evaluamos una sola vez en prueba.
+knn.fit(sbs.transform(X_train_std), y_train)
+print(f"Exactitud final en prueba: {knn.score(sbs.transform(X_test_std), y_test):.3f}")
+```
+
+La curva muestra la puntuación del subconjunto conservado en cada paso, no la exactitud de prueba. En este ejemplo sencillo, el escalador se ajusta antes de la división interna de SBS, por lo que la validación interna ya influyó en su escala; esto puede hacer optimista esa puntuación. Para una selección más rigurosa, aplica el escalado dentro de cada partición de validación, por ejemplo mediante un `Pipeline` y validación cruzada. El conjunto de prueba final permanece separado de ambos pasos.
