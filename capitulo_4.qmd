@@ -101,6 +101,7 @@ Son dos alternativas de escalado; no es necesario aplicar ambas sucesivamente. E
 ```{python}
 
 ```
+
 Es un método voraz: una característica eliminada no se recupera, por lo que no garantiza encontrar el mejor subconjunto global. Puede ayudar a reducir la complejidad, aunque requiere entrenar muchos modelos y depende del estimador y de la partición de validación elegidos.
 
 ```{python}
@@ -212,3 +213,74 @@ print(f"Exactitud final en prueba: {knn.score(sbs.transform(X_test_std), y_test)
 ```
 
 La curva muestra la puntuación del subconjunto conservado en cada paso, no la exactitud de prueba. En este ejemplo sencillo, el escalador se ajusta antes de la división interna de SBS, por lo que la validación interna ya influyó en su escala; esto puede hacer optimista esa puntuación. Para una selección más rigurosa, aplica el escalado dentro de cada partición de validación, por ejemplo mediante un `Pipeline` y validación cruzada. El conjunto de prueba final permanece separado de ambos pasos.
+
+#### Consultar un subconjunto de características
+
+La gráfica permite comparar la puntuación de validación para cada cantidad de características. Una vez elegida una cantidad, podemos consultar la tupla de índices correspondiente en `sbs.subsets_` y obtener sus nombres.
+
+Por ejemplo, partimos de 13 características y eliminamos una en cada paso. Para quedarnos con 8, buscamos la posición `13 - 8 = 5`: las posiciones de la lista comienzan en cero, por lo que la posición 0 contiene las 13 características y la 5 contiene las 8 seleccionadas.
+
+```{python}
+# subsets_ contiene las tuplas elegidas para 13, 12, 11, ... características.
+k8 = sbs.subsets_[5]  # Tupla con los índices de las 8 características.
+nombres_k8 = [wine.feature_names[i] for i in k8]
+
+print("Índices:", k8)
+print("Características:", nombres_k8)
+print(f"Exactitud de validación: {sbs.scores_[5]:.3f}")
+```
+
+`wine.feature_names` contiene los nombres en el mismo orden que las columnas de `wine.data`; no hace falta quitar la primera columna. Para buscar otra cantidad sin calcular la posición manualmente, podemos usar la lista `k_feat` creada para la gráfica:
+
+```{python}
+cantidad = 8
+posicion = k_feat.index(cantidad)  # Busca la posición de esa cantidad en la curva.
+indices = sbs.subsets_[posicion]
+print([wine.feature_names[i] for i in indices])
+```
+
+Solo se pueden consultar las cantidades evaluadas por SBS: en este ejemplo, de 13 hasta 3. `sbs.transform()` usa únicamente el subconjunto final de 3 características; para utilizar el de 8, selecciona sus columnas con `X_train_std[:, k8]` y `X_test_std[:, k8]`. Elige la cantidad mediante validación y reserva el conjunto de prueba para la evaluación final.
+
+### Importancia de características con un bosque aleatorio
+
+Un `RandomForestClassifier` permite estimar la importancia de cada característica según cuánto contribuye a reducir la impureza en los árboles del bosque. Las importancias suman 1: un valor mayor indica una contribución relativa mayor dentro de este modelo.
+
+Reutilizamos la división del conjunto de vinos. Los árboles no necesitan estandarización, por lo que entrenamos con `X_train`:
+
+```{python}
+from sklearn.ensemble import RandomForestClassifier
+
+bosque = RandomForestClassifier(n_estimators=100, random_state=42)
+bosque.fit(X_train, y_train)
+
+importancias = bosque.feature_importances_  # Una importancia por columna.
+indices = np.argsort(importancias)[::-1]  # Índices ordenados de mayor a menor.
+
+# Imprimimos el nombre y la importancia de cada característica.
+for i in indices:
+    print(f"{wine.feature_names[i]}: {importancias[i]:.4f}")
+
+# El gráfico usa el mismo orden descendente.
+plt.figure(figsize=(10, 5))
+plt.bar(range(len(indices)), importancias[indices])
+plt.xticks(
+    range(len(indices)),
+    [wine.feature_names[i] for i in indices],
+    rotation=90,
+)
+plt.ylabel("Importancia")
+plt.xlabel("Característica")
+plt.title("Importancia de características en el bosque aleatorio")
+plt.tight_layout()
+plt.show()
+```
+
+Estas importancias describen el modelo entrenado, no demuestran causalidad. Pueden ser engañosas si las características están correlacionadas o tienen muchas posibles divisiones; conviene contrastarlas, por ejemplo, con importancia por permutación en datos reservados.
+
+```{python}
+
+knn.fit(X_train_std[:,k8],y_train)
+print(knn.score(X_train_std[:,k8],y_train))
+print(knn.score(X_test_std[:,k8],y_test))
+
+```
