@@ -284,3 +284,27 @@ print(knn.score(X_train_std[:,k8],y_train))
 print(knn.score(X_test_std[:,k8],y_test))
 
 ```
+
+### Selección con `SelectFromModel`
+
+`SelectFromModel` selecciona las características según la importancia calculada por un modelo. Reutilizamos el bosque ya entrenado y conservamos las características cuya importancia es **mayor o igual a 0.1**:
+
+```{python}
+from sklearn.feature_selection import SelectFromModel
+
+# prefit=True indica que el bosque ya fue entrenado con X_train e y_train.
+selector = SelectFromModel(bosque, threshold=0.1, prefit=True)
+mascara = selector.get_support()  # True para cada característica seleccionada.
+
+# Aplicamos la misma selección al entrenamiento y a la prueba.
+X_train_seleccionado = selector.transform(X_train)
+X_test_seleccionado = selector.transform(X_test)
+
+print("Características seleccionadas e importancia:")
+for i in np.flatnonzero(mascara):
+    print(f"{wine.feature_names[i]}: {bosque.feature_importances_[i]:.4f}")
+
+print(f"Número de características seleccionadas: {X_train_seleccionado.shape[1]}")
+```
+
+El umbral se aplica a las importancias aprendidas con el conjunto de entrenamiento; el conjunto de prueba solo se transforma. Las columnas seleccionadas mantienen su orden original.
