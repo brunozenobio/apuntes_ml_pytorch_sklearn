@@ -1,0 +1,331 @@
+---
+title: "Capítulo 5 · Comprensión de datos mediante la reducción de dimensionalidad"
+lang: es
+---
+
+## De la selección a la extracción de características
+
+En el capítulo anterior seleccionamos un subconjunto de las características originales. La **extracción de características**, en cambio, construye nuevas variables a partir de ellas. Reducir su número puede facilitar la visualización, disminuir el costo de algunos modelos y eliminar parte del ruido, aunque también puede descartar información útil.
+
+Estudiaremos tres métodos: el análisis de componentes principales (PCA), que no usa etiquetas; el análisis discriminante lineal (LDA), que sí las usa; y PCA con kernels, que permite representar relaciones no lineales. Una proyección en dos dimensiones es útil para explorar, pero no garantiza el mejor rendimiento predictivo.
+
+## Preparación del conjunto de vinos
+
+Usaremos el conjunto `wine`, con 13 características químicas y tres clases. Como en el capítulo anterior, reservamos primero los datos de prueba y aprendemos la escala únicamente con entrenamiento. Los bloques de este documento están pensados para ejecutarse en orden.
+
+```{python}
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.datasets import load_wine
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+wine = load_wine()
+X_train, X_test, y_train, y_test = train_test_split(
+    wine.data, wine.target, test_size=0.3, stratify=wine.target, random_state=42
+)
+
+scaler = StandardScaler()
+X_train_std = scaler.fit_transform(X_train)
+X_test_std = scaler.transform(X_test)
+print("Formas de entrenamiento y prueba:", X_train_std.shape, X_test_std.shape)
+```
+
+La estandarización es importante aquí porque las características tienen unidades y magnitudes diferentes. Tanto el escalador como la transformación de dimensionalidad deben ajustarse de nuevo dentro de cada partición si se realiza validación cruzada.
+
+## Análisis de componentes principales (PCA)
+
+PCA busca nuevas direcciones ortogonales, llamadas **componentes principales**. La primera es la dirección de mayor varianza de los datos centrados; la segunda captura la mayor varianza restante bajo la restricción de ser perpendicular a la primera, y así sucesivamente. La proyección sobre estas direcciones produce las nuevas características.
+
+### Matriz de covarianza
+
+La **matriz de covarianza** resume cómo varían las características respecto de sus medias y cómo varían conjuntamente. Sus elementos diagonales son las varianzas de cada característica; los demás son las covarianzas entre pares. Una covarianza positiva indica que dos características tienden a aumentar juntas, una negativa indica que tienden a variar en sentidos opuestos y una cercana a cero indica poca relación lineal.
+
+Si $X_c$ es la matriz de entrenamiento centrada, con $n$ muestras en las filas y $d$ características en las columnas, la matriz de covarianza se escribe con sigma mayúscula, $\Sigma$:
+
+$$
+\Sigma = \frac{1}{n-1}X_c^\top X_c.
+$$
+
+El resultado tiene dimensiones $d \times d$. Por ejemplo, $\Sigma_{ij}$ es la covarianza entre las características $i$ y $j$. En nuestro ejemplo usamos características estandarizadas; el centrado consiste en restar a cada columna su media de entrenamiento.
+
+### Autovalores y autovectores
+
+Para encontrar las direcciones principales, buscamos los autovalores $\lambda$ y autovectores $\mathbf{v}$ de la matriz de covarianza:
+
+$$
+\Sigma\mathbf{v} = \lambda\mathbf{v}, \qquad \mathbf{v} \ne \mathbf{0}.
+$$
+
+Los autovalores se obtienen como soluciones de la ecuación característica, donde $I$ es la matriz identidad:
+
+$$
+\det(\Sigma - \lambda I) = 0.
+$$
+
+Para cada autovalor $\lambda_i$, el autovector correspondiente $\mathbf{v}_i$ indica una **dirección** en el espacio de características. Su autovalor indica cuánta **varianza** tienen los datos en esa dirección, cuando el autovector tiene norma 1. Ordenamos los pares de mayor a menor autovalor: la dirección asociada al mayor captura la mayor varianza. La proporción de un autovalor respecto de la suma de todos ellos es su **varianza explicada**. El signo de un autovector puede invertirse sin cambiar la dirección geométrica que representa.
+
+### Matriz de proyección y nuevo espacio
+
+Para reducir de $d$ características a $k$, construimos la **matriz de proyección** $W_k$ colocando como columnas los autovectores normalizados correspondientes a los $k$ mayores autovalores:
+
+$$
+W_k = \begin{bmatrix} \mathbf{v}_1 & \mathbf{v}_2 & \cdots & \mathbf{v}_k \end{bmatrix},
+\qquad \lambda_1 \geq \lambda_2 \geq \cdots \geq \lambda_k.
+$$
+
+$W_k$ tiene dimensiones $d \times k$. Multiplicamos la matriz centrada por $W_k$ para obtener las coordenadas en el nuevo espacio:
+
+$$
+Z = X_c W_k.
+$$
+
+$Z$ tiene dimensiones $n \times k$: cada fila representa una muestra y cada columna, una componente principal. Para transformar una muestra nueva, primero se centra con las medias aprendidas en entrenamiento —y se aplica antes el mismo escalado, si se utilizó—; después se multiplica por el mismo $W_k$.
+
+PCA es **no supervisado**: no busca separar las clases y una dirección de gran varianza no tiene por qué ser la más útil para clasificarlas. `PCA` centra sus entradas, pero no las estandariza automáticamente.
+
+### PCA paso a paso con NumPy
+
+Primero calculamos la covarianza del entrenamiento estandarizado. `np.cov` espera las características en filas por defecto, por eso transponemos la matriz. Como la matriz de covarianza es simétrica, usamos `eigh`: devuelve los autovalores en orden ascendente y los autovectores correspondientes en las columnas.
+
+```{python}
+cov_matrix = np.cov(X_train_std.T)
+autovalores, autovectores = np.linalg.eigh(cov_matrix)
+
+# Ordenamos conjuntamente los autovalores y las columnas de autovectores.
+orden = np.argsort(autovalores)[::-1]
+autovalores = autovalores[orden]
+autovectores = autovectores[:, orden]
+
+varianza_numpy = autovalores / autovalores.sum()
+acumulada_numpy = np.cumsum(varianza_numpy)
+componentes = np.arange(1, len(autovalores) + 1)
+plt.bar(componentes, varianza_numpy, alpha=0.6, label="Individual")
+plt.step(componentes, acumulada_numpy, where="mid", label="Acumulada")
+plt.ylabel("Proporción de varianza explicada")
+plt.xlabel("Componente principal")
+plt.xticks(componentes)
+plt.legend()
+plt.tight_layout()
+plt.show()
+```
+
+Cada barra corresponde a una **componente**, no a una característica original. Ahora tomamos los dos primeros autovectores para construir $W$ y proyectar el entrenamiento. También proyectamos prueba usando la misma matriz, sin volver a calcularla.
+
+```{python}
+k = 2
+W = autovectores[:, :k]  # Una columna por componente: forma (13, 2).
+X_train_pca_numpy = X_train_std @ W
+X_test_pca_numpy = X_test_std @ W
+print("Forma de W:", W.shape)
+print("Forma del entrenamiento proyectado:", X_train_pca_numpy.shape)
+
+colores = ["r", "g", "b"]
+markers = ["o", "s", "^"]
+for clase, nombre in enumerate(wine.target_names):
+    puntos = y_train == clase
+    plt.scatter(X_train_pca_numpy[puntos, 0], X_train_pca_numpy[puntos, 1],
+                c=colores[clase], marker=markers[clase], label=nombre, alpha=0.7)
+plt.xlabel("Primera componente principal")
+plt.ylabel("Segunda componente principal")
+plt.legend()
+plt.tight_layout()
+plt.show()
+```
+
+Como `StandardScaler` ya centra el entrenamiento, aquí `X_train_std` cumple el papel de $X_c$. En prueba, el escalador utiliza las medias y escalas de entrenamiento. Los signos de las componentes pueden diferir respecto de scikit-learn sin cambiar la información representada.
+
+### Varianza explicada con scikit-learn
+
+```{python}
+from sklearn.decomposition import PCA
+
+pca_completo = PCA()
+pca_completo.fit(X_train_std)
+varianza = pca_completo.explained_variance_ratio_
+acumulada = np.cumsum(varianza)
+
+plt.bar(range(1, len(varianza) + 1), varianza, alpha=0.6, label="Individual")
+plt.step(range(1, len(varianza) + 1), acumulada, where="mid", label="Acumulada")
+plt.xlabel("Componente principal")
+plt.ylabel("Proporción de varianza explicada")
+plt.xticks(range(1, len(varianza) + 1))
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+print(f"Varianza explicada por dos componentes: {acumulada[1]:.3f}")
+```
+
+La curva acumulada ayuda a elegir cuántas componentes conservar. Por ejemplo, `PCA(n_components=0.95, svd_solver="full")` selecciona suficientes componentes para conservar al menos el 95 % de la varianza del entrenamiento. Ese umbral es una decisión práctica, no una garantía de buena clasificación.
+
+### Proyección y clasificación con PCA
+
+```{python}
+pca = PCA(n_components=2)
+X_train_pca = pca.fit_transform(X_train_std)
+X_test_pca = pca.transform(X_test_std)
+colores = ['r','g','b']
+markers = ['o','s','^']
+for clase, nombre in enumerate(wine.target_names):
+    puntos = y_train == clase
+    plt.scatter(X_train_pca[puntos, 0], X_train_pca[puntos, 1],
+                label=nombre, alpha=0.7,c=colores[clase],marker=markers[clase])
+plt.xlabel("Primera componente principal")
+plt.ylabel("Segunda componente principal")
+plt.legend()
+plt.tight_layout()
+plt.show()
+```
+
+Las etiquetas solo se usan para colorear la gráfica; PCA no las recibió al ajustarse. `pca.components_` contiene una fila por componente y una columna por característica original: sus coeficientes describen las direcciones en el espacio estandarizado. Cada componente combina varias características, por lo que puede ser menos interpretable que una selección de columnas.
+
+Para evaluar un clasificador sin filtrar información entre particiones, agrupamos escalado, PCA y regresión logística en un `Pipeline`:
+
+```{python}
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import make_pipeline
+
+modelo_pca = make_pipeline(
+    StandardScaler(), PCA(n_components=2), LogisticRegression(max_iter=1000)
+)
+scores = cross_val_score(modelo_pca, X_train, y_train, cv=5, scoring="accuracy")
+print(f"Exactitud media de validación: {scores.mean():.3f} ± {scores.std():.3f}")
+modelo_pca.fit(X_train, y_train)
+print(f"Exactitud en prueba: {modelo_pca.score(X_test, y_test):.3f}")
+```
+
+Cada partición de validación aprende su propia escala y sus componentes. Para elegir el número de componentes u otros hiperparámetros, compáralos con validación sobre entrenamiento y utiliza prueba solo para la evaluación final, no para escoger el modelo.
+
+### Regiones de decisión
+
+Para visualizar la frontera del modelo, proyectamos las muestras con el escalador y el PCA **ya ajustados dentro de `modelo_pca`**. Después aplicamos su regresión logística a una cuadrícula en ese espacio de dos componentes. Los colores del fondo indican la clase predicha y los puntos muestran las clases reales. Esta función `plot_decision_regions` usa NumPy y Matplotlib, sin necesitar paquetes adicionales.
+
+```{python}
+from matplotlib.colors import ListedColormap
+
+
+def plot_decision_regions(X, y, classifier, nombres, titulo):
+    colores = ["#e76f51", "#2a9d8f", "#457b9d"]
+    marcadores = ["o", "s", "^"]
+    clases = classifier.classes_
+    x1 = np.linspace(X[:, 0].min() - 1, X[:, 0].max() + 1, 300)
+    x2 = np.linspace(X[:, 1].min() - 1, X[:, 1].max() + 1, 300)
+    xx1, xx2 = np.meshgrid(x1, x2)
+    predicciones = classifier.predict(np.column_stack((xx1.ravel(), xx2.ravel())))
+    # Convertimos las etiquetas a índices para colorear la cuadrícula.
+    regiones = np.searchsorted(clases, predicciones).reshape(xx1.shape)
+
+    plt.contourf(xx1, xx2, regiones, levels=np.arange(len(clases) + 1) - 0.5,
+                 cmap=ListedColormap(colores[:len(clases)]), alpha=0.25)
+    for i, clase in enumerate(clases):
+        puntos = y == clase
+        plt.scatter(X[puntos, 0], X[puntos, 1], c=colores[i], marker=marcadores[i],
+                    edgecolors="black", linewidths=0.5, label=nombres[clase])
+    plt.xlabel("Primera componente principal")
+    plt.ylabel("Segunda componente principal")
+    plt.title(titulo)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+# Transformamos con las dos primeras etapas del pipeline, sin volver a ajustarlas.
+X_train_proyectado = modelo_pca[:-1].transform(X_train)
+X_test_proyectado = modelo_pca[:-1].transform(X_test)
+clasificador_pca = modelo_pca[-1]
+
+plot_decision_regions(X_train_proyectado, y_train, clasificador_pca,
+                      wine.target_names, "Regiones de decisión: entrenamiento")
+plot_decision_regions(X_test_proyectado, y_test, clasificador_pca,
+                      wine.target_names, "Regiones de decisión: prueba")
+```
+
+La función anterior está preparada para las tres clases de vino, codificadas como 0, 1 y 2. Ambas gráficas muestran el mismo clasificador; solo cambian las muestras y el área visible. Un punto situado en una región de otro color representa una clasificación incorrecta.
+
+## Análisis discriminante lineal (LDA)
+
+LDA es una técnica **supervisada**: busca direcciones que favorezcan la separación entre clases, considerando la dispersión entre sus medias y la dispersión dentro de cada clase. A diferencia de PCA, necesita las etiquetas durante el ajuste. Para $C$ clases, puede producir como máximo $\min(d, C-1)$ componentes discriminantes, donde $d$ es el número de características.
+
+Con tres clases de vino podemos proyectar como máximo en dos dimensiones:
+
+```{python}
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+lda = LinearDiscriminantAnalysis(n_components=2)
+X_train_lda = lda.fit_transform(X_train_std, y_train)
+X_test_lda = lda.transform(X_test_std)
+
+for clase, nombre in enumerate(wine.target_names):
+    puntos = y_train == clase
+    plt.scatter(X_train_lda[puntos, 0], X_train_lda[puntos, 1],
+                label=nombre, alpha=0.7)
+plt.xlabel("Primera discriminante lineal")
+plt.ylabel("Segunda discriminante lineal")
+plt.legend()
+plt.tight_layout()
+plt.show()
+```
+
+La separación observada en entrenamiento no demuestra que las clases se separarán igual en datos nuevos. LDA también puede actuar directamente como clasificador; aquí lo usamos como transformador seguido de regresión logística:
+
+```{python}
+modelo_lda = make_pipeline(
+    StandardScaler(),
+    LinearDiscriminantAnalysis(n_components=2),
+    LogisticRegression(max_iter=1000),
+)
+scores = cross_val_score(modelo_lda, X_train, y_train, cv=5, scoring="accuracy")
+print(f"Exactitud media de validación: {scores.mean():.3f} ± {scores.std():.3f}")
+modelo_lda.fit(X_train, y_train)
+print(f"Exactitud en prueba: {modelo_lda.score(X_test, y_test):.3f}")
+```
+
+Si se comparan PCA y LDA para elegir un modelo, sus puntuaciones de validación sirven para esa elección; las cifras de prueba mostradas son ilustrativas y no deben usarse repetidamente para ajustar el método.
+
+## PCA con kernels
+
+PCA convencional encuentra combinaciones lineales de las características. **Kernel PCA** aplica la idea de PCA en un espacio de características implícito mediante una función kernel, lo que permite obtener proyecciones no lineales en el espacio original. Con el kernel RBF:
+
+$$
+K(\mathbf{x}, \mathbf{z}) = \exp(-\gamma\lVert\mathbf{x}-\mathbf{z}\rVert^2), \qquad \gamma > 0.
+$$
+
+`gamma` determina la escala de similitud: un valor grande hace que disminuya más rápido con la distancia. Su elección y la escala de los datos afectan el resultado. Kernel PCA no utiliza etiquetas, y sus componentes no tienen la misma interpretación directa como combinaciones lineales de las variables originales.
+
+El siguiente ejemplo usa dos medias lunas para ilustrar una estructura no lineal. El modelo aprende la escala y la proyección solo del entrenamiento:
+
+```{python}
+from sklearn.datasets import make_moons
+from sklearn.decomposition import KernelPCA
+
+X_lunas, y_lunas = make_moons(n_samples=300, noise=0.08, random_state=42)
+X_lunas_train, X_lunas_test, y_lunas_train, y_lunas_test = train_test_split(
+    X_lunas, y_lunas, test_size=0.3, stratify=y_lunas, random_state=42
+)
+
+modelo_kernel = make_pipeline(
+    StandardScaler(),
+    KernelPCA(n_components=2, kernel="rbf", gamma=1.0),
+    LogisticRegression(max_iter=1000),
+)
+scores = cross_val_score(
+    modelo_kernel, X_lunas_train, y_lunas_train, cv=5, scoring="accuracy"
+)
+print(f"Exactitud media de validación: {scores.mean():.3f} ± {scores.std():.3f}")
+modelo_kernel.fit(X_lunas_train, y_lunas_train)
+print(f"Exactitud en prueba: {modelo_kernel.score(X_lunas_test, y_lunas_test):.3f}")
+```
+
+`gamma=1.0` es solo un valor ilustrativo. Para una aplicación real, conviene elegirlo mediante validación junto con el número de componentes y los parámetros del clasificador. Kernel PCA requiere almacenar y procesar una matriz de similitudes entre muestras, lo que puede resultar costoso en conjuntos grandes.
+
+## Resumen
+
+| Método | ¿Usa etiquetas? | Idea principal | Límite o precaución |
+|:-----------------|:-----------------|:-----------------|:-----------------|
+| PCA | No | Conserva direcciones de mayor varianza. | La varianza no garantiza separación entre clases. |
+| LDA | Sí | Busca direcciones que favorecen la separación de clases. | Como máximo $C-1$ componentes para $C$ clases. |
+| Kernel PCA | No | Encuentra una representación potencialmente no lineal mediante un kernel. | Sensible al kernel y sus parámetros; puede ser costoso. |
+
+En los tres casos, ajusta las transformaciones con entrenamiento, aplica lo aprendido a datos nuevos y reserva prueba para estimar el rendimiento final. Reducir dimensiones no siempre mejora un modelo: compara también con una alternativa que use las características originales.
