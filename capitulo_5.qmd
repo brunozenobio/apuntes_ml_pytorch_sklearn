@@ -244,6 +244,65 @@ plot_decision_regions(X_test_proyectado, y_test, clasificador_pca,
 
 La función anterior está preparada para las tres clases de vino, codificadas como 0, 1 y 2. Ambas gráficas muestran el mismo clasificador; solo cambian las muestras y el área visible. Un punto situado en una región de otro color representa una clasificación incorrecta.
 
+### Matriz de cargas
+
+La **matriz de cargas** ayuda a interpretar las componentes: relaciona cada característica original con cada componente principal. Si $v_{ij}$ es el coeficiente de la característica $i$ en el autovector de la componente $j$, y $\lambda_j$ es su autovalor, la carga se calcula como:
+
+$$
+L_{ij} = v_{ij}\sqrt{\lambda_j}, \qquad
+L = W\,\operatorname{diag}(\sqrt{\lambda_1},\ldots,\sqrt{\lambda_k}).
+$$
+
+Aquí $L_{ij}$ es la covarianza entre la característica centrada $i$ y la componente $j$ normalizada a varianza 1. Para obtener su **correlación**, dividimos además por la desviación estándar muestral $s_i$ de la característica:
+
+$$
+\operatorname{corr}(X_i, Z_j) = \frac{v_{ij}\sqrt{\lambda_j}}{s_i}.
+$$
+
+Si las características tienen varianza muestral 1, las cargas coinciden con las correlaciones. En este ejemplo, `StandardScaler` usa varianza poblacional, mientras que `np.cov` usa varianza muestral; por eso dividimos por `s_i` para obtener las correlaciones exactas. No hay que confundir estas cargas con los coeficientes de los autovectores, que definen las direcciones de proyección.
+
+Calculamos la matriz para todas las componentes y representamos las correlaciones con la primera. Un valor positivo o negativo indica el sentido de la relación; cuanto mayor sea su valor absoluto, más fuerte es la relación lineal. El signo de toda una componente puede invertirse sin cambiar la solución de PCA, y correlación no implica causalidad.
+
+```{python}
+cargas = autovectores * np.sqrt(np.maximum(autovalores, 0))
+desviaciones = X_train_std.std(axis=0, ddof=1)
+correlaciones = cargas / desviaciones[:, np.newaxis]
+
+fig, ax = plt.subplots(figsize=(10, 5))
+posiciones = np.arange(len(wine.feature_names))
+ax.bar(posiciones, correlaciones[:, 0])
+ax.set_ylabel("Correlación con la primera componente")
+ax.set_xticks(posiciones)
+ax.set_xticklabels(wine.feature_names, rotation=90)
+ax.set_ylim(-1, 1)
+ax.axhline(0, color="black", linewidth=0.8)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+
+```
+
+Cada barra corresponde a una característica original, a diferencia de las gráficas de varianza explicada, cuyas barras representan componentes. Los nombres provienen de `wine.feature_names`, en el mismo orden que las columnas de `wine.data`.
+
+#### Cálculo con scikit-learn
+
+También podemos obtener las cargas a partir del objeto `pca_completo`, ajustado antes con el mismo entrenamiento estandarizado. `explained_variance_` contiene los autovalores, y `components_` contiene los autovectores. La diferencia es su orientación: `np.linalg.eigh` devuelve cada autovector en una **columna** de `autovectores`, mientras que scikit-learn guarda cada componente en una **fila** de `components_`. Por eso usamos `components_.T`: así las filas representan características y las columnas, componentes, igual que en el cálculo con NumPy. Allí no hizo falta transponer porque los autovectores ya estaban organizados por columnas.
+
+```{python}
+cargas_sklearn = pca_completo.components_.T * np.sqrt(
+    pca_completo.explained_variance_
+)
+correlaciones_sklearn = cargas_sklearn / desviaciones[:, np.newaxis]
+
+print("Forma de la matriz de cargas:", cargas_sklearn.shape)
+for nombre, correlacion in zip(wine.feature_names, correlaciones_sklearn[:, 0]):
+    print(f"{nombre}: {correlacion:+.3f}")
+```
+
+Ambos métodos describen las mismas direcciones, aunque una componente y sus cargas pueden aparecer con el signo invertido entre implementaciones. Esto no modifica la interpretación geométrica; para comparar los valores directamente, primero habría que alinear los signos de las componentes correspondientes.
+
 ## Análisis discriminante lineal (LDA)
 
 LDA es una técnica **supervisada**: busca direcciones que favorezcan la separación entre clases, considerando la dispersión entre sus medias y la dispersión dentro de cada clase. A diferencia de PCA, necesita las etiquetas durante el ajuste. Para $C$ clases, puede producir como máximo $\min(d, C-1)$ componentes discriminantes, donde $d$ es el número de características.
